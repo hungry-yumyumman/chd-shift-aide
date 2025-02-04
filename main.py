@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 import os
+
 from util import generate_time_slots, generate_day_slots
 
 load_dotenv()
@@ -18,44 +19,30 @@ days = generate_day_slots()
 # Create time slot list
 time_slots = generate_time_slots()
 
-locations = ["BEC", "CALL", "CHD", "CLE", "HSD", "TSC"]
+locations = ["Entire Shift","BEC", "CALL", "CHD", "CLE", "HSD", "TSC"]
 
-class Questionnaire(discord.ui.Modal, title='Questionnaire Response'):
-    name = discord.ui.TextInput(label='Name')
-    answer = discord.ui.TextInput(label='Answer', style=discord.TextStyle.paragraph)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f'Thanks for your response, {self.name}!', ephemeral=True)
-
-class ShiftDecisionView(discord.ui.View):
-    def __init__(self):
+class ClaimableShiftView(discord.ui.View):
+    def __init__(self, invoker_username):
+        self.invoker_username = invoker_username
         super().__init__()
 
     @discord.ui.button(
-        row=4,
-        label="Submit",
-        style=discord.ButtonStyle.success
+        label="Take this Shift",
+        style = discord.ButtonStyle.success
     )
-    async def submit_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        return await interaction.response.send_message(f"Thanks for your response, {button.label}")
+    async def take_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.display_name == self.invoker_username:
+            return await interaction.response.send_message("You can't take your own shift", ephemeral=True)
 
-    @discord.ui.button(
-        row=4,
-        label="Cancel",
-        style=discord.ButtonStyle.danger
-    )
-    async def cancel_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        return await interaction.response.send_message(f"Thanks for your response, {button.label}")
+        # Disable the button for everyone
+        button.disabled = True
+        button.label = "Shift has been taken"
+        await interaction.message.edit(view=self)
 
-    @discord.ui.button(
-        row=4,
-        label="Add Shift",
-        style=discord.ButtonStyle.primary
-    )
-    async def add_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        return await interaction.response.send_message(f"Thanks for your response, {button.label}")
+        # Send confirmation message
+        return await interaction.response.send_message(f"{interaction.user.display_name} has taken this shift given up by {self.invoker_username}")
 
-class ShiftTradeView(discord.ui.View):
+class ShiftTradeFormView(discord.ui.View):
     def __init__(self):
         super().__init__()
 
@@ -73,7 +60,7 @@ class ShiftTradeView(discord.ui.View):
         options = [discord.SelectOption(label=location) for location in locations])
     async def select_location_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_location = select.values[0]
-        return await interaction.response.send_message(f"You chose {select.values[0]}!")
+        await interaction.response.defer()
 
     @discord.ui.select(
         placeholder = "From",
@@ -83,7 +70,7 @@ class ShiftTradeView(discord.ui.View):
     )
     async def select_from_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_from = select.values[0]
-        return await interaction.response.send_message(f"You chose {select.values[0]}!")
+        await interaction.response.defer()
 
     @discord.ui.select(
         placeholder = "To",
@@ -93,7 +80,7 @@ class ShiftTradeView(discord.ui.View):
     )
     async def select_to_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_to = select.values[0]
-        return await interaction.response.send_message(f"You chose {select.values[0]}!")
+        await interaction.response.defer()
 
     @discord.ui.select(
         placeholder = "Date",
@@ -103,7 +90,7 @@ class ShiftTradeView(discord.ui.View):
     )
     async def select_date_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_date = select.values[0]
-        return await interaction.response.send_message(f"You chose {select.values[0]}!")
+        await interaction.response.defer()
 
     @discord.ui.button(
         row=4,
@@ -111,7 +98,34 @@ class ShiftTradeView(discord.ui.View):
         style=discord.ButtonStyle.success
     )
     async def submit_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        return await interaction.response.send_message(f"Thanks for your response, {button.label}")
+
+        missing = []
+
+        if not self.chosen_location:
+            missing.append("Location")
+        if not self.chosen_from:
+            missing.append("From")
+        if not self.chosen_to:
+            missing.append("To")
+        if not self.chosen_date:
+            missing.append("Date")
+
+        if missing:
+            error_message = f"Please select the following fields: \n" + f"{'\n'.join(missing)}"
+            return await interaction.response.send_message(error_message, ephemeral=True)
+
+        embed = discord.Embed(
+            title="Shift up for grabs",
+            color=discord.Color.blurple()
+        )
+
+        if self.chosen_location == "Entire Shift":
+            embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would like their entire shift on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
+        else:
+            embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would  like their entire shift in **{self.chosen_location}** on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
+        view = ClaimableShiftView(interaction.user.display_name)
+        await interaction.message.delete()
+        return await interaction.channel.send(embed=embed, view=view)
 
     @discord.ui.button(
         row=4,
@@ -130,7 +144,7 @@ class ShiftTradeView(discord.ui.View):
     )
     async def add_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.add_new = True
-        next_view = ShiftTradeView()  # Create another instance of ShiftTradeView
+        next_view = ShiftTradeFormView()  # Create another instance of ShiftTradeView
         # Send new message with new view
         await interaction.channel.send("Add another shift:", view=next_view)
         return await interaction.response.send_message("Shift added.", ephemeral=True)
@@ -138,8 +152,8 @@ class ShiftTradeView(discord.ui.View):
 @client.command()
 async def shift(ctx):
     """Open shift trade interface"""
-    view = ShiftTradeView()
-    await ctx.send("Select shift to trade:", view=view)
+    view = ShiftTradeFormView()
+    await ctx.send("Select shift to trade:", view=view, ephemeral=True)
     await ctx.message.delete()
 
 @client.command()
@@ -147,6 +161,7 @@ async def add(ctx, first: int, second: int):
     """Add two numbers"""
     result = first + second
     await ctx.send(f"{first} + {second} = {result}", ephemeral=True)
+    await ctx.message.delete()
 
 @client.event
 async def on_ready():
