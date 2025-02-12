@@ -8,5 +8,7 @@
 *.sln
 *.sw?
 .env
+.key
+.pub
 
 
