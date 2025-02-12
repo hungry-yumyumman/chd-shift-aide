@@ -86,7 +86,7 @@ class ShiftTradeFormView(discord.ui.View):
         placeholder = "Date",
         min_values = 1,
         max_values = 1,
-        options = [discord.SelectOption(label=day.isoformat(), value=day.isoformat()) for day in days]
+        options = [discord.SelectOption(label=day.strftime("%A, %d %B %Y"), value=day.strftime("%A, %d %B %Y")) for day in days]
     )
     async def select_date_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_date = select.values[0]
@@ -111,7 +111,8 @@ class ShiftTradeFormView(discord.ui.View):
             missing.append("Date")
 
         if missing:
-            error_message = f"Please select the following fields: \n" + f"{'\n'.join(missing)}"
+            missing_fields = '\n'.join(missing)
+            error_message = f"Please select the following fields: \n" + f"{missing_fields}"
             return await interaction.response.send_message(error_message, ephemeral=True)
 
         embed = discord.Embed(
@@ -135,7 +136,7 @@ class ShiftTradeFormView(discord.ui.View):
     async def cancel_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.cancel = True
         await interaction.message.delete()
-        return await interaction.response.send_message("Operation cancelled.", ephemeral=True)
+        return await interaction.response.send_message("Shift Request Form has been deleted", ephemeral=True)
 
     @discord.ui.button(
         row=4,
