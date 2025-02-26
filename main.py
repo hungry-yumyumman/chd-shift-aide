@@ -1,3 +1,6 @@
+from asyncio import \
+    timeout
+
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -124,7 +127,7 @@ class ShiftTradeFormView(discord.ui.View):
             embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would like their entire shift on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
         else:
             embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would  like their entire shift in **{self.chosen_location}** on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
-        view = ClaimableShiftView(interaction.user.display_name)
+        view = ClaimableShiftView(interaction.user.display_name, timeout=None)
         await interaction.message.delete()
         return await interaction.channel.send(embed=embed, view=view)
 
@@ -145,7 +148,7 @@ class ShiftTradeFormView(discord.ui.View):
     )
     async def add_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.add_new = True
-        next_view = ShiftTradeFormView()  # Create another instance of ShiftTradeView
+        next_view = ShiftTradeFormView(timeout=600)  # Create another instance of ShiftTradeView
         # Send new message with new view
         await interaction.channel.send("Add another shift:", view=next_view)
         return await interaction.response.send_message("Shift added.", ephemeral=True)
@@ -153,7 +156,7 @@ class ShiftTradeFormView(discord.ui.View):
 @client.command()
 async def shift(ctx):
     """Open shift trade interface"""
-    view = ShiftTradeFormView()
+    view = ShiftTradeFormView(timeout=600)
     await ctx.send("Select shift to trade:", view=view, ephemeral=True)
     await ctx.message.delete()
 
