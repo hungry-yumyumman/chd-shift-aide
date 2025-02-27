@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import time
 import os
 
 from util import generate_time_slots, generate_day_slots
@@ -24,7 +25,7 @@ locations = ["Entire Shift","BEC", "CALL", "CHD", "CLE", "HSD", "TSC"]
 class ClaimableShiftView(discord.ui.View):
     def __init__(self, invoker_username):
         self.invoker_username = invoker_username
-        super().__init__()
+        super().__init__(timeout=None)
 
     @discord.ui.button(
         label="Take this Shift",
@@ -44,7 +45,7 @@ class ClaimableShiftView(discord.ui.View):
 
 class ShiftTradeFormView(discord.ui.View):
     def __init__(self):
-        super().__init__()
+        super().__init__(timeout=600)
 
     chosen_location = ""
     chosen_from = ""
@@ -52,6 +53,19 @@ class ShiftTradeFormView(discord.ui.View):
     chosen_date = ""
     cancel = False
     add_new = False
+
+    # Add a timeout handler
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+        try:
+            # Try to edit the message if it still exists
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(content="This form has expired. Please create another form", view=self)
+        except Exception as e:
+            print(f"Error handling timeout: {e}")
+            pass
 
     @discord.ui.select(
         placeholder = "Choose a location",
@@ -66,7 +80,7 @@ class ShiftTradeFormView(discord.ui.View):
         placeholder = "From",
         min_values = 1,
         max_values = 1,
-        options = [discord.SelectOption(label=time.strftime("%I:%M %p"), value=time.strftime("%H:%M")) for time in time_slots]
+        options = [discord.SelectOption(label=time.strftime("%I:%M %p"), value=time.strftime("%I:%M %p")) for time in time_slots]
     )
     async def select_from_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_from = select.values[0]
@@ -76,7 +90,7 @@ class ShiftTradeFormView(discord.ui.View):
         placeholder = "To",
         min_values = 1,
         max_values = 1,
-        options = [discord.SelectOption(label=time.strftime("%I:%M %p"), value=time.strftime("%H:%M")) for time in time_slots]
+        options = [discord.SelectOption(label=time.strftime("%I:%M %p"), value=time.strftime("%I:%M %p")) for time in time_slots]
     )
     async def select_to_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.chosen_to = select.values[0]
@@ -115,6 +129,10 @@ class ShiftTradeFormView(discord.ui.View):
             error_message = f"Please select the following fields: \n" + f"{missing_fields}"
             return await interaction.response.send_message(error_message, ephemeral=True)
 
+        if time.strptime(self.chosen_from, "%I:%M %p") > time.strptime(self.chosen_to, "%I:%M %p"):
+            error_message = f"The From time cannot later than the To time"
+            return await interaction.response.send_message(error_message, ephemeral=True)
+
         embed = discord.Embed(
             title="Shift up for grabs",
             color=discord.Color.blurple()
@@ -124,7 +142,7 @@ class ShiftTradeFormView(discord.ui.View):
             embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would like their entire shift on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
         else:
             embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would  like their entire shift in **{self.chosen_location}** on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
-        view = ClaimableShiftView(interaction.user.display_name, timeout=None)
+        view = ClaimableShiftView(interaction.user.display_name)
         await interaction.message.delete()
         return await interaction.channel.send(embed=embed, view=view)
 
@@ -145,7 +163,7 @@ class ShiftTradeFormView(discord.ui.View):
     )
     async def add_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.add_new = True
-        next_view = ShiftTradeFormView(timeout=600)  # Create another instance of ShiftTradeView
+        next_view = ShiftTradeFormView()  # Create another instance of ShiftTradeView
         # Send new message with new view
         await interaction.channel.send("Add another shift:", view=next_view)
         return await interaction.response.send_message("Shift added.", ephemeral=True)
@@ -153,8 +171,9 @@ class ShiftTradeFormView(discord.ui.View):
 @client.command()
 async def shift(ctx):
     """Open shift trade interface"""
-    view = ShiftTradeFormView(timeout=600)
-    await ctx.send("Select shift to trade:", view=view, ephemeral=True)
+    view = ShiftTradeFormView()
+    message = await ctx.send("Select shift to trade:", view=view, ephemeral=True)
+    view.message = message
     await ctx.message.delete()
 
 @client.command()
