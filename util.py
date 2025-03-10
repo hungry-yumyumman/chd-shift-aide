@@ -1,4 +1,25 @@
 from datetime import datetime, date, time, timedelta
+import sqlite3
+
+def setup_db():
+    conn = sqlite3.connect('shifts.db')
+    c = conn.cursor()
+
+    # Create table for active shifts
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS active_shifts (
+        message_id TEXT PRIMARY KEY,
+        channel_id TEXT,
+        invoker_username TEXT,
+        location TEXT,
+        shift_date TEXT,
+        time_from TEXT,
+        time_to TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    conn.commit()
+    conn.close()
 
 def generate_day_slots():
     day_slots = []
