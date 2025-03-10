@@ -3,8 +3,9 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import time
 import os
+import sqlite3
 
-from util import generate_time_slots, generate_day_slots
+from util import generate_time_slots, generate_day_slots, setup_db
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -27,7 +28,10 @@ class ClaimableShiftView(discord.ui.View):
         self.invoker_username = invoker_username
         super().__init__(timeout=None)
 
+
+
     @discord.ui.button(
+        custom_id="take_btn",
         label="Take this Shift",
         style = discord.ButtonStyle.success
     )
@@ -39,6 +43,13 @@ class ClaimableShiftView(discord.ui.View):
         button.disabled = True
         button.label = "Shift has been taken"
         await interaction.message.edit(view=self)
+
+        # Delete message from DB
+        conn = sqlite3.connect('shifts.db')
+        c = conn.cursor()
+        c.execute('DELETE FROM active_shifts WHERE message_id = ?', (str(interaction.message.id),))
+        conn.commit()
+        conn.close()
 
         # Send confirmation message
         return await interaction.response.send_message(f"{interaction.user.display_name} has taken this shift given up by {self.invoker_username}")
@@ -141,10 +152,33 @@ class ShiftTradeFormView(discord.ui.View):
         if self.chosen_location == "Entire Shift":
             embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would like their entire shift on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
         else:
-            embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would  like their entire shift in **{self.chosen_location}** on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
+            embed.add_field(name="**Shift Details**", value=f"**{interaction.user.display_name}** would  like their shift in **{self.chosen_location}** on **{self.chosen_date}** from **{self.chosen_from}** to **{self.chosen_to}** to be taken")
         view = ClaimableShiftView(interaction.user.display_name)
         await interaction.message.delete()
-        return await interaction.channel.send(embed=embed, view=view)
+        shift_message = await interaction.channel.send(embed=embed, view=view)
+
+        conn = sqlite3.connect('shifts.db')
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO active_shifts 
+            (message_id, channel_id, invoker_username, location, shift_date, time_from, time_to) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                str(shift_message.id),
+                str(interaction.channel.id),
+                interaction.user.display_name,
+                self.chosen_location,
+                self.chosen_date,
+                self.chosen_from,
+                self.chosen_to
+            )
+        )
+
+        conn.commit()
+        conn.close()
+
+        return shift_message
+
 
     @discord.ui.button(
         row=4,
@@ -186,6 +220,22 @@ async def add(ctx, first: int, second: int):
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
+
+    # Load database
+    setup_db()
+
+    # Load active shifts from database
+    conn = sqlite3.connect('shifts.db')
+    c = conn.cursor()
+    c.execute('SELECT message_id, channel_id, invoker_username FROM active_shifts')
+    active_shifts = c.fetchall()
+    conn.close()
+
+    # Register persistent views for each active shift
+    for message_id, channel_id, invoker_username in active_shifts:
+        client.add_view(ClaimableShiftView(invoker_username), message_id=int(message_id))
+
+    print(f"Loaded {len(active_shifts)} active shifts.")
 
 if __name__ == "__main__":
     client.run(TOKEN)
